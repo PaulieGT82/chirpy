@@ -1,14 +1,28 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"sync/atomic"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+}
+
+type chirpRequest struct {
+	Body string `json:"body"`
+}
+
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+type cleanedResponse struct {
+	CleanedBody string `json:"cleaned_body"`
 }
 
 func main() {
@@ -22,6 +36,7 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
+	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -31,6 +46,9 @@ func main() {
 	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
 	log.Fatal(srv.ListenAndServe())
 }
+
+// profane words list
+var profaneWords = []string{"kerfuffle", "sharbert", "fornax"}
 
 // status check
 func handlerReadiness(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +88,40 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Counter reset to 0"))
 }
 
-// convert int32 to string
-func itoa(value int32) string {
-	return fmt.Sprintf("%d", value)
+// validate chirp
+func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
+	var chirp chirpRequest
+
+	//parse JSON
+	if err := json.NewDecoder(r.Body).Decode(&chirp); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(errorResponse{Error: "Invalid JSON"})
+		return
+	}
+
+	//validate chirp length
+	if len(chirp.Body) > 140 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(errorResponse{Error: "Chirp is too long"})
+		return
+	}
+
+	//replace profane words
+	cleanedBody := cleanProfanity(chirp.Body)
+
+	//valid and cleaned
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(cleanedResponse{CleanedBody: cleanedBody})
+}
+
+// replace profane words
+func cleanProfanity(body string) string {
+	for _, word := range profaneWords {
+		regex := regexp.MustCompile(`\b(?i)` + word + `\b`)
+		body = regex.ReplaceAllString(body, "****")
+	}
+	return body
 }
