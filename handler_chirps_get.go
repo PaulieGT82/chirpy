@@ -28,6 +28,7 @@ func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, r *http.Request) {
 		Body:      dbChirp.Body,
 	})
 }
+
 func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Request) {
 	dbChirps, err := cfg.db.GetChirps(r.Context())
 	if err != nil {
